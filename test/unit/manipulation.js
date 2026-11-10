@@ -2516,3 +2516,102 @@ asyncTest( "Sanitized HTML doesn't get unsanitized (CVE-2020-11022)", function()
 		start();
 	}, 1000 );
 });
+
+test( "<option> and <optgroup> markup is not parsed inside a <select> (CVE-2020-11023)", function() {
+
+	var i, payload,
+		div = document.createElement("div"),
+		payloads = [
+			"<option><style></option></select><b class='xss-injected'></b></style>",
+			"<optgroup><style></optgroup></select><b class='xss-injected'></b></style>"
+		];
+
+	// Support: IE<=9
+	// IE<=9 drops <option> tags outside of a select element, so they still need a wrapper there
+	div.innerHTML = "<option></option>";
+	if ( !div.lastChild ) {
+		expect( 1 );
+		ok( true, "<option> markup is wrapped in a <select> in this browser" );
+		return;
+	}
+
+	expect( payloads.length * 4 + 5 );
+
+	for ( i = 0; i < payloads.length; i++ ) {
+		payload = payloads[ i ];
+
+		equal( jQuery("<div></div>").html( payload ).find(".xss-injected").length, 0,
+			"html() keeps the markup inert: " + payload );
+		equal( jQuery("<div></div>").append( payload ).find(".xss-injected").length, 0,
+			"append() keeps the markup inert: " + payload );
+		equal( jQuery("<div></div>").append( jQuery( payload ) ).find(".xss-injected").length, 0,
+			"jQuery(html) keeps the markup inert: " + payload );
+		equal( jQuery("<div></div>").append( jQuery.parseHTML( payload ) ).find(".xss-injected").length, 0,
+			"jQuery.parseHTML() keeps the markup inert: " + payload );
+	}
+
+	// The markup must be parsed in the same context a sanitizer parsed it in; inside an
+	// implicit <select> the <input> would close the select and the content would be lost
+	payload = "<option>x<input class='parse-context'/></option>";
+
+	equal( jQuery("<div></div>").html( payload ).find("option > .parse-context").length, 1,
+		"html() does not parse <option> markup inside a <select>" );
+	equal( jQuery("<div></div>").append( payload ).find("option > .parse-context").length, 1,
+		"append() does not parse <option> markup inside a <select>" );
+	equal( jQuery( payload ).find(".parse-context").length, 1,
+		"jQuery(html) does not parse <option> markup inside a <select>" );
+	equal( jQuery("<div></div>").append( jQuery.parseHTML( payload ) ).find("option > .parse-context").length, 1,
+		"jQuery.parseHTML() does not parse <option> markup inside a <select>" );
+	equal( jQuery("<div></div>").append("<optgroup><input class='parse-context'/></optgroup>")
+		.find("optgroup > .parse-context").length, 1,
+		"append() does not parse <optgroup> markup inside a <select>" );
+});
+
+asyncTest( "Sanitized <option> HTML doesn't get unsanitized (CVE-2020-11023)", function() {
+
+	var i,
+		executed = {},
+		div = document.createElement("div"),
+		container = jQuery("<div></div>").appendTo("#qunit-fixture"),
+		htmlStrings = [];
+
+	function payload( tag ) {
+		var index = htmlStrings.length;
+
+		htmlStrings.push( "<" + tag + "><style></" + tag + "></select>" +
+			"<img src=url404 onerror=xss(" + index + ")></style>" );
+		return htmlStrings[ index ];
+	}
+
+	// Support: IE<=9
+	// IE<=9 drops <option> tags outside of a select element, so they still need a wrapper there
+	div.innerHTML = "<option></option>";
+	if ( !div.lastChild ) {
+		expect( 1 );
+		ok( true, "<option> markup is wrapped in a <select> in this browser" );
+		start();
+		return;
+	}
+
+	Globals.register("xss");
+	window.xss = function( index ) {
+		executed[ index ] = true;
+	};
+
+	jQuery.each( [ "option", "optgroup" ], function( j, tag ) {
+		jQuery("<div></div>").appendTo( container ).html( payload( tag ) );
+		jQuery("<div></div>").appendTo( container ).append( payload( tag ) );
+		jQuery("<div></div>").appendTo( container ).prepend( payload( tag ) );
+		jQuery("<div></div>").appendTo( container ).append( jQuery( payload( tag ) ) );
+		jQuery("<div></div>").appendTo( container ).append( jQuery.parseHTML( payload( tag ) ) );
+	});
+
+	expect( htmlStrings.length );
+
+	setTimeout(function() {
+		for ( i = 0; i < htmlStrings.length; i++ ) {
+			ok( !executed[ i ], "Insecure code wasn't executed, input: " + htmlStrings[ i ] );
+		}
+		start();
+	}, 1000 );
+});
