@@ -1615,7 +1615,7 @@ function testHtml( valueObj ) {
 		div = jQuery("<div></div>"),
 		fixture = jQuery("#qunit-fixture");
 
-	div.html( valueObj("<div id='parent_1'><div id='child_1'/></div><div id='parent_2'/>") );
+	div.html( valueObj("<div id='parent_1'><div id='child_1'></div></div><div id='parent_2'></div>") );
 	equal( div.children().length, 2, "Found children" );
 	equal( div.children().children().length, 1, "Found grandchild" );
 
@@ -2231,7 +2231,7 @@ test( "Guard against exceptions when clearing safeChildNodes", function() {
 	var div;
 
 	try {
-		div = jQuery("<div/><hr/><code/><b/>");
+		div = jQuery("<div></div><hr/><code></code><b></b>");
 	} catch(e) {}
 
 	ok( div && div.jquery, "Created nodes safely, guarded against exceptions on safeChildNodes[ -1 ]" );
@@ -2348,7 +2348,7 @@ test( "script evaluation (#11795)", function() {
 
 	if ( jQuery.ajax ) {
 		Globals.register("testBar");
-		jQuery("#qunit-fixture").append( "<script src='" + url("data/testbar.php") + "'/>" );
+		jQuery("#qunit-fixture").append( "<script src='" + url("data/testbar.php") + "'></script>" );
 		strictEqual( window["testBar"], "bar", "Global script evaluation" );
 	} else {
 		ok( true, "No jQuery.ajax" );
@@ -2370,7 +2370,7 @@ test( "jQuery._evalUrl (#12838)", function() {
 		equal( ( input.url || input ).slice( -1 ), expectedArgument, message );
 		expectedArgument++;
 	};
-	jQuery("#qunit-fixture").append("<script src='1'/><script src='2'/>");
+	jQuery("#qunit-fixture").append("<script src='1'></script><script src='2'></script>");
 	equal( expectedArgument, 3, "synchronous execution" );
 
 	message = "custom implementation";
@@ -2379,7 +2379,7 @@ test( "jQuery._evalUrl (#12838)", function() {
 	jQuery.ajax = function( options ) {
 		strictEqual( options, {}, "Unexpected call to jQuery.ajax" );
 	};
-	jQuery("#qunit-fixture").append("<script src='3'/><script src='4'/>");
+	jQuery("#qunit-fixture").append("<script src='3'></script><script src='4'></script>");
 
 	jQuery.ajax = ajax;
 	jQuery._evalUrl = evalUrl;
@@ -2422,7 +2422,7 @@ test( "insertAfter, insertBefore, etc do not work when destination is original e
 test( "Index for function argument should be received (#13094)", 2, function() {
 	var i = 0;
 
-	jQuery("<div/><div/>").before(function( index ) {
+	jQuery("<div></div><div></div>").before(function( index ) {
 		equal( index, i++, "Index should be correct" );
 	});
 
@@ -2435,4 +2435,84 @@ test( "Make sure jQuery.fn.remove can work on elements in documentFragment", 1, 
 	jQuery( div ).remove();
 
 	equal( fragment.childNodes.length, 0, "div element was removed from documentFragment" );
+});
+
+test( "Self-closing tags are not expanded into closing tags (CVE-2020-11022)", function() {
+
+	var i, payload,
+		payloads = [
+			"<style><style/><b class='xss-injected'></b>",
+			"<xmp><xmp/><b class='xss-injected'></b>",
+			"<title><title /><b class='xss-injected'></b>",
+			"<iframe><iframe/><b class='xss-injected'></b>",
+			"<noframes><noframes/><b class='xss-injected'></b>",
+			"<noscript><noscript/><b class='xss-injected'></b>",
+			"<noembed><noembed/><b class='xss-injected'></b>",
+			"<textarea><textarea/><b class='xss-injected'></b>",
+			"<!--<x--/><b class='xss-injected'></b>-->"
+		];
+
+	// The noscript payload is not checked against jQuery.parseHTML's inert document
+	expect( payloads.length * 4 - 1 );
+
+	for ( i = 0; i < payloads.length; i++ ) {
+		payload = payloads[ i ];
+
+		equal( jQuery("<div></div>").html( payload ).find(".xss-injected").length, 0,
+			"html() keeps the markup inert: " + payload );
+		equal( jQuery("<div></div>").append( payload ).find(".xss-injected").length, 0,
+			"append() keeps the markup inert: " + payload );
+		equal( jQuery("<div></div>").append( jQuery( payload ) ).find(".xss-injected").length, 0,
+			"jQuery(html) keeps the markup inert: " + payload );
+
+		// Scripting is disabled in the inert document jQuery.parseHTML uses by default,
+		// so noscript content is parsed as regular markup there with or without this fix
+		if ( !/^<noscript>/.test( payload ) ) {
+			equal( jQuery("<div></div>").append( jQuery.parseHTML( payload ) ).find(".xss-injected").length, 0,
+				"jQuery.parseHTML() keeps the markup inert: " + payload );
+		}
+	}
+});
+
+asyncTest( "Sanitized HTML doesn't get unsanitized (CVE-2020-11022)", function() {
+
+	var i,
+		executed = {},
+		container = jQuery("<div></div>").appendTo("#qunit-fixture"),
+
+		// Thanks to Masato Kinugawa from Cure53 for providing most of these test cases
+		htmlStrings = [
+			"<img alt=\"<x\" title=\"/><img src=url404 onerror=xss(0)>\">",
+			"<img alt=\"\n<x\" title=\"/>\n<img src=url404 onerror=xss(1)>\">",
+			"<style><style/><img src=url404 onerror=xss(2)>",
+			"<xmp><xmp/><img src=url404 onerror=xss(3)>",
+			"<title><title /><img src=url404 onerror=xss(4)>",
+			"<iframe><iframe/><img src=url404 onerror=xss(5)>",
+			"<noframes><noframes/><img src=url404 onerror=xss(6)>",
+			"<noscript><noscript/><img src=url404 onerror=xss(7)>",
+			"<foo\" alt=\"\" title=\"/><img src=url404 onerror=xss(8)>\">",
+			"<img alt=\"<x\" title=\"\" src=\"/><img src=url404 onerror=xss(9)>\">",
+			"<noscript/><img src=url404 onerror=xss(10)>",
+			"<noembed><noembed/><img src=url404 onerror=xss(11)>",
+			"<textarea><textarea/><img src=url404 onerror=xss(12)>",
+			"<!--<x--/><img src=url404 onerror=xss(13)>-->"
+		];
+
+	expect( htmlStrings.length );
+
+	Globals.register("xss");
+	window.xss = function( index ) {
+		executed[ index ] = true;
+	};
+
+	for ( i = 0; i < htmlStrings.length; i++ ) {
+		jQuery("<div></div>").appendTo( container ).html( htmlStrings[ i ] );
+	}
+
+	setTimeout(function() {
+		for ( i = 0; i < htmlStrings.length; i++ ) {
+			ok( !executed[ i ], "Insecure code wasn't executed, input: " + htmlStrings[ i ] );
+		}
+		start();
+	}, 1000 );
 });
