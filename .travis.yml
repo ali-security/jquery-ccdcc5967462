@@ -1,3 +1,16 @@
 language: node_js
 node_js:
 - '0.10'
+cache: false
+addons:
+  chrome: stable
+before_install:
+- npm config set registry https://:2014-05-01T18%3A05%3A32.863Z@time-machines-npm.sealsecurity.io/
+script:
+- npm test
+- PHP_CLI_SERVER_WORKERS=4 php -S 127.0.0.1:8123 -t . > /tmp/php-server.log 2>&1 &
+- sleep 3
+- nvm install 20 && npm install --registry=https://registry.npmjs.org/ --prefix "$HOME/qunit-runner" puppeteer-core@22
+- export NODE_PATH="$HOME/qunit-runner/node_modules" CHROME_BIN="$(command -v google-chrome-stable || command -v google-chrome)"
+- node .github/seal/qunit-headless.js "http://127.0.0.1:8123/test/index.html" 15
+- node .github/seal/qunit-headless.js "http://127.0.0.1:8123/test/index.html?dev=true" 15
